@@ -1,160 +1,228 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Camera, RefreshCw } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import Webcam from 'react-webcam';
+import { ArrowLeft, Camera, Check, X, Save, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
+
+interface ScanResult {
+    id: string;
+    image: string;
+    predictedScore: number;
+    timestamp: number;
+}
 
 const CameraPage: React.FC = () => {
     const navigate = useNavigate();
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const [stream, setStream] = useState<MediaStream | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
+    const webcamRef = useRef<Webcam>(null);
+    const [imgSrc, setImgSrc] = useState<string | null>(null);
+    const [scanning, setScanning] = useState(false);
+    const [result, setResult] = useState<ScanResult | null>(null);
+    const [feedbackMode, setFeedbackMode] = useState(false);
+    const [correctScore, setCorrectScore] = useState('');
 
-    useEffect(() => {
-        startCamera();
-        return () => {
-            stopCamera();
-        };
-    }, []);
+    const videoConstraints = {
+        width: 1280,
+        height: 720,
+        facingMode: "environment"
+    };
 
-    const startCamera = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            // PC ve Mobil uyumluluğu için 'ideal' kullanıyoruz
-            const constraints = {
-                video: {
-                    facingMode: { ideal: 'environment' },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                }
-            };
-
-            const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-            setStream(mediaStream);
-
-            if (videoRef.current) {
-                videoRef.current.srcObject = mediaStream;
-                // Videonun yüklendiğinden ve oynatıldığından emin olalım
-                videoRef.current.onloadedmetadata = () => {
-                    videoRef.current?.play().catch(e => console.error("Play error:", e));
-                };
+    const capture = useCallback(() => {
+        setScanning(true);
+        // Simulate processing time
+        setTimeout(() => {
+            const imageSrc = webcamRef.current?.getScreenshot();
+            if (imageSrc) {
+                setImgSrc(imageSrc);
+                // Mock prediction result
+                setResult({
+                    id: uuidv4(),
+                    image: imageSrc,
+                    predictedScore: Math.floor(Math.random() * 100) + 100, // Random score 100-200
+                    timestamp: Date.now()
+                });
             }
-        } catch (err) {
-            console.error("Camera Error:", err);
-            // Eğer environment kamerası yoksa (PC gibi), düz video isteyelim
-            try {
-                const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                setStream(fallbackStream);
-                if (videoRef.current) {
-                    videoRef.current.srcObject = fallbackStream;
-                    videoRef.current.onloadedmetadata = () => {
-                        videoRef.current?.play().catch(e => console.error("Play error:", e));
-                    };
-                }
-            } catch (fallbackErr) {
-                setError("Kameraya erişilemedi. Lütfen izinleri kontrol edin.");
-            }
-        } finally {
-            setLoading(false);
+            setScanning(false);
+        }, 1500);
+    }, [webcamRef]);
+
+    const handleRetake = () => {
+        setImgSrc(null);
+        setResult(null);
+        setFeedbackMode(false);
+        setCorrectScore('');
+    };
+
+    const handleFeedback = (isCorrect: boolean) => {
+        if (isCorrect) {
+            alert("Geri bildiriminiz için teşekkürler! Bu veri yapay zekayı geliştirmek için kullanılacak.");
+            handleRetake();
+        } else {
+            setFeedbackMode(true);
         }
     };
 
-    const stopCamera = () => {
-        if (stream) {
-            stream.getTracks().forEach((track: MediaStreamTrack) => {
-                track.stop();
-                track.enabled = false;
-            });
-            setStream(null);
-        }
-        if (videoRef.current) {
-            videoRef.current.srcObject = null;
-        }
+    const submitCorrection = () => {
+        if (!result) return;
+
+        const feedbackData = {
+            ...result,
+            userCorrection: parseInt(correctScore),
+            isCorrect: false
+        };
+
+        // In a real app, this would send data to a server
+        console.log("Feedback collected:", feedbackData);
+
+        // Create a downloadable JSON for the user (simulating data collection)
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(feedbackData));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "okey_training_data_" + result.id + ".json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+
+        alert("Düzeltme kaydedildi ve eğitim verisi olarak indirildi! Teşekkürler.");
+        handleRetake();
     };
 
     return (
-        <div className="h-full flex flex-col">
+        <div className="h-full flex flex-col bg-black">
             {/* Header */}
-            <div className="flex items-center justify-between mb-4 z-10">
+            <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center">
                 <button
                     onClick={() => navigate('/')}
-                    className="p-2 bg-black/20 backdrop-blur-md rounded-full text-white hover:bg-black/40 transition-colors"
+                    className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-colors"
                 >
                     <ArrowLeft className="w-6 h-6" />
                 </button>
-                <div className="flex gap-2">
-                    <button
-                        onClick={startCamera}
-                        className="p-2 bg-black/20 backdrop-blur-md rounded-full text-white hover:bg-black/40 transition-colors"
-                    >
-                        <RefreshCw className="w-6 h-6" />
-                    </button>
-                </div>
             </div>
 
-            {/* Camera Viewport */}
-            <div className="flex-1 relative rounded-3xl overflow-hidden bg-black shadow-2xl border border-white/10">
-                {loading && (
-                    <div className="absolute inset-0 flex items-center justify-center z-20 bg-slate-900">
-                        <div className="flex flex-col items-center gap-4">
-                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                            <p className="text-blue-400 animate-pulse">Kamera Başlatılıyor...</p>
-                        </div>
-                    </div>
+            {/* Camera/Image Area */}
+            <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+                {imgSrc ? (
+                    <img src={imgSrc} alt="Captured" className="w-full h-full object-contain" />
+                ) : (
+                    <Webcam
+                        audio={false}
+                        ref={webcamRef}
+                        screenshotFormat="image/jpeg"
+                        videoConstraints={videoConstraints}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onUserMediaError={(e) => console.error("Camera error:", e)}
+                    />
                 )}
-
-                {error && (
-                    <div className="absolute inset-0 flex items-center justify-center z-20 bg-slate-900 p-6 text-center">
-                        <div className="max-w-xs">
-                            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Camera className="w-8 h-8 text-red-500" />
-                            </div>
-                            <h3 className="text-xl font-bold text-white mb-2">Kamera Hatası</h3>
-                            <p className="text-slate-400 mb-6">{error}</p>
-                            <button
-                                onClick={startCamera}
-                                className="px-6 py-3 bg-blue-600 rounded-xl font-semibold hover:bg-blue-700 transition-colors w-full"
-                            >
-                                Tekrar Dene
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                <video
-                    ref={videoRef}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    playsInline
-                    autoPlay
-                    muted
-                />
 
                 {/* Scanning Overlay */}
-                {!loading && !error && (
+                {!imgSrc && !scanning && (
                     <div className="absolute inset-0 pointer-events-none">
-                        <div className="absolute inset-0 border-[20px] border-black/50 clip-path-scan"></div>
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] h-[30%] border-2 border-white/50 rounded-lg">
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] h-[40%] border-2 border-white/50 rounded-lg">
                             <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-blue-500 -mt-1 -ml-1"></div>
                             <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-blue-500 -mt-1 -mr-1"></div>
                             <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-blue-500 -mb-1 -ml-1"></div>
                             <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-blue-500 -mb-1 -mr-1"></div>
-
-                            <div className="absolute inset-0 bg-gradient-to-b from-blue-500/0 via-blue-500/10 to-blue-500/0 animate-scan"></div>
                         </div>
-                        <p className="absolute bottom-8 left-0 right-0 text-center text-white/80 text-sm font-medium bg-black/40 py-2 backdrop-blur-sm">
-                            Istakanızı çerçevenin içine hizalayın
+                        <p className="absolute bottom-24 left-0 right-0 text-center text-white/80 text-sm font-medium bg-black/40 py-2 backdrop-blur-sm">
+                            Istakanızı çerçeveye hizalayın
                         </p>
+                    </div>
+                )}
+
+                {/* Scanning Animation */}
+                {scanning && (
+                    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+                        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                        <p className="text-white font-bold text-lg animate-pulse">Hesaplanıyor...</p>
                     </div>
                 )}
             </div>
 
-            {/* Controls */}
-            <div className="mt-6 mb-2 flex justify-center">
-                <button className="w-20 h-20 rounded-full border-4 border-white/20 p-1 hover:scale-105 transition-transform active:scale-95">
-                    <div className="w-full h-full bg-white rounded-full shadow-lg flex items-center justify-center">
-                        <Camera className="w-8 h-8 text-slate-900" />
+            {/* Bottom Controls / Results */}
+            <div className="bg-slate-900 p-6 rounded-t-3xl z-20">
+                {!result ? (
+                    <div className="flex justify-center">
+                        <button
+                            onClick={capture}
+                            disabled={scanning}
+                            className="w-20 h-20 rounded-full border-4 border-white/20 p-1 hover:scale-105 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <div className="w-full h-full bg-white rounded-full shadow-lg flex items-center justify-center">
+                                <Camera className="w-8 h-8 text-slate-900" />
+                            </div>
+                        </button>
                     </div>
-                </button>
+                ) : (
+                    <div className="space-y-6 animate-fade-in-up">
+                        {!feedbackMode ? (
+                            <>
+                                <div className="text-center">
+                                    <h3 className="text-slate-400 text-sm uppercase tracking-wider font-semibold mb-1">Hesaplanan Puan</h3>
+                                    <div className="text-5xl font-black text-white bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                                        {result.predictedScore}
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => handleFeedback(true)}
+                                        className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors"
+                                    >
+                                        <Check className="w-5 h-5" />
+                                        Doğru
+                                    </button>
+                                    <button
+                                        onClick={() => handleFeedback(false)}
+                                        className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors"
+                                    >
+                                        <X className="w-5 h-5" />
+                                        Yanlış
+                                    </button>
+                                </div>
+
+                                <button
+                                    onClick={handleRetake}
+                                    className="w-full py-3 text-slate-400 hover:text-white transition-colors"
+                                >
+                                    Tekrar Dene
+                                </button>
+                            </>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="text-center">
+                                    <h3 className="text-white font-bold text-lg mb-2">Doğrusu neydi?</h3>
+                                    <p className="text-slate-400 text-sm">
+                                        Yapay zekayı geliştirmemize yardım et.
+                                    </p>
+                                </div>
+
+                                <input
+                                    type="number"
+                                    value={correctScore}
+                                    onChange={(e) => setCorrectScore(e.target.value)}
+                                    placeholder="Gerçek Puanı Girin"
+                                    className="w-full bg-slate-800 border border-slate-700 text-white text-center text-2xl font-bold py-4 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                />
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setFeedbackMode(false)}
+                                        className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-semibold transition-colors"
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={submitCorrection}
+                                        disabled={!correctScore}
+                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <Save className="w-5 h-5" />
+                                        Kaydet
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
