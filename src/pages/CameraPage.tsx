@@ -20,16 +20,40 @@ const CameraPage: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment' }
-            });
+            // PC ve Mobil uyumluluğu için 'ideal' kullanıyoruz
+            const constraints = {
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
+
+            const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
             setStream(mediaStream);
+
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
+                // Videonun yüklendiğinden ve oynatıldığından emin olalım
+                videoRef.current.onloadedmetadata = () => {
+                    videoRef.current?.play().catch(e => console.error("Play error:", e));
+                };
             }
         } catch (err) {
             console.error("Camera Error:", err);
-            setError("Kameraya erişilemedi. Lütfen izinleri kontrol edin veya HTTPS bağlantısı kullandığınızdan emin olun.");
+            // Eğer environment kamerası yoksa (PC gibi), düz video isteyelim
+            try {
+                const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                setStream(fallbackStream);
+                if (videoRef.current) {
+                    videoRef.current.srcObject = fallbackStream;
+                    videoRef.current.onloadedmetadata = () => {
+                        videoRef.current?.play().catch(e => console.error("Play error:", e));
+                    };
+                }
+            } catch (fallbackErr) {
+                setError("Kameraya erişilemedi. Lütfen izinleri kontrol edin.");
+            }
         } finally {
             setLoading(false);
         }
@@ -37,8 +61,14 @@ const CameraPage: React.FC = () => {
 
     const stopCamera = () => {
         if (stream) {
-            stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+            stream.getTracks().forEach((track: MediaStreamTrack) => {
+                track.stop();
+                track.enabled = false;
+            });
             setStream(null);
+        }
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
         }
     };
 
